@@ -1,0 +1,126 @@
+From 4c04b8dc2ec30abd2b68b5d50cd8a6b78c875828 Mon Sep 17 00:00:00 2001
+From: Student <student@localhost.localdomain>
+Date: Sun, 4 Nov 2018 21:02:42 -0500
+Subject: [PATCH] kernel: wire up an example system call for x86
+
+Writing a system call to add 2 integers and return the result
+=============================================================
+
+Pre-requisite readings:
+a) https://www.kernel.org/doc/html/v4.19/process/adding-syscalls.html#generic-system-call-implementation
+b) https://www.kernel.org/doc/html/v4.19/process/applying-patches.html
+
+Linux kernel has a family of preprocesor macros (define at
+include/linux/syscalls.h) SYSCALL_DEFINEx, that make it easy
+to define a system call with 'x' arguments.
+
+For convenience, lets just amend the new syscall code to kernel/sys.c, where
+several other kernel system calls are defined (good read, for learning), also
+in this example, the new syscall is only wired up for x86_64.
+
+Test program:
+ /*
+  * Test the add2int syscall (#335)
+  */
+ #define _GNU_SOURCE
+ #include <unistd.h>
+ #include <stdlib.h>
+ #include <sys/syscall.h>
+ #include <stdio.h>
+
+ #define SYS_add2int 335
+
+ int main(int argc, char **argv)
+ {
+ 	int a, b;
+
+	if (argc <= 2) {
+		printf("Must provide 2 integers to pass to the system call.\n");
+		return -1;
+	}
+	a = atoi(argv[1]);
+	b = atoi(argv[2]);
+
+	printf("Making system call with a=%d, b=%d\n", a, b);
+	long res = syscall(SYS_add2int, a, b);
+	printf("System call returned %ld.\n", res);
+
+	return res;
+ }
+
+Test run output:
+> [student@localhost kernel]$ ./test-syscall 2 2
+> Making system call with a=2, b=2
+> System call returned 4.
+> [student@localhost kernel]$ ./test-syscall 2 5
+> Making system call with a=2, b=5
+> System call returned 7.
+> [student@localhost kernel]$ ./test-syscall 2 -3
+> Making system call with a=2, b=-3
+> System call returned -1.
+> [student@localhost kernel]$ dmesg | tail
+> [    5.308001] audit: type=1130 audit(1541382961.598:75): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=plymouth-read-write comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
+> [    5.467060] RPC: Registered named UNIX socket transport module.
+> [    5.467061] RPC: Registered udp transport module.
+> [    5.467061] RPC: Registered tcp transport module.
+> [    5.467061] RPC: Registered tcp NFSv4.1 backchannel transport module.
+> [    5.878888] IPv6: ADDRCONF(NETDEV_UP): ens3: link is not ready
+> [    6.118789] bridge: filtering via arp/ip/ip6tables is no longer available by default. Update your scripts to load br_netfilter if you need this.
+> [  177.728864] syscall: add2int: a=2 b=2 result=4
+> [  194.181533] syscall: add2int: a=2 b=5 result=7
+> [  200.629848] syscall: add2int: a=2 b=-3 result=-1
+
+Signed-off-by: Student <student@localhost.localdomain>
+---
+ arch/x86/entry/syscalls/syscall_64.tbl | 1 +
+ include/linux/syscalls.h               | 1 +
+ kernel/sys.c                           | 9 +++++++++
+ 3 files changed, 11 insertions(+)
+
+diff --git a/arch/x86/entry/syscalls/syscall_64.tbl b/arch/x86/entry/syscalls/syscall_64.tbl
+index f0b1709a5ffb..e3bfc0852923 100644
+--- a/arch/x86/entry/syscalls/syscall_64.tbl
++++ b/arch/x86/entry/syscalls/syscall_64.tbl
+@@ -343,6 +343,7 @@
+ 332	common	statx			__x64_sys_statx
+ 333	common	io_pgetevents		__x64_sys_io_pgetevents
+ 334	common	rseq			__x64_sys_rseq
++335	common	add2int			__x64_sys_add2int
+ 
+ #
+ # x32-specific system call numbers start at 512 to avoid cache impact
+diff --git a/include/linux/syscalls.h b/include/linux/syscalls.h
+index 2ac3d13a915b..b8e0ebf5f39d 100644
+--- a/include/linux/syscalls.h
++++ b/include/linux/syscalls.h
+@@ -1113,6 +1113,7 @@ asmlinkage long sys_mmap_pgoff(unsigned long addr, unsigned long len,
+ 			unsigned long fd, unsigned long pgoff);
+ asmlinkage long sys_old_mmap(struct mmap_arg_struct __user *arg);
+ 
++asmlinkage long sys_add2int(int a, int b);
+ 
+ /*
+  * Not a real system call, but a placeholder for syscalls which are
+diff --git a/kernel/sys.c b/kernel/sys.c
+index 123bd73046ec..009cf8c8972b 100644
+--- a/kernel/sys.c
++++ b/kernel/sys.c
+@@ -2574,6 +2574,15 @@ SYSCALL_DEFINE1(sysinfo, struct sysinfo __user *, info)
+ 	return 0;
+ }
+ 
++SYSCALL_DEFINE2(add2int, int, a, int, b)
++{
++	long result = a + b;
++
++	printk(KERN_INFO "syscall: add2int: a=%i b=%i result=%li\n", a, b, result);
++
++	return result;
++}
++
+ #ifdef CONFIG_COMPAT
+ struct compat_sysinfo {
+ 	s32 uptime;
+-- 
+2.17.2
+
